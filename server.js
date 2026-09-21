@@ -7,61 +7,72 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Parse JSON payloads in POST requests
 app.use(express.json());
 
-// Environment variable for authentication
 const PASSWORD = process.env.AUTH_PASSWORD;
 
-// Serve static HTML files (like index.html)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Set to store active HTML client WebSocket connections
+// Store client connections tagged with their requested path: Set<{ ws, targetPath }>
 const htmlClients = new Set();
 
-// Handle WebSocket connections from HTML clients
+// Cache counts per path: { [filePath]: lineCount }
+const pathCounts = {};
+
 wss.on('connection', (ws, req) => {
-    // Parse URL query parameters to authenticate frontend client
     const urlParams = new URLSearchParams(req.url.replace(/^.*\?/, ''));
     const token = urlParams.get('payload');
+    const targetPath = urlParams.get('path');
 
     if (token !== PASSWORD) {
         ws.close(1008, 'Unauthorized');
         return;
     }
 
-    htmlClients.add(ws);
+    const clientMeta = { ws, targetPath };
+    htmlClients.add(clientMeta);
+
+    // Send latest cached count for this specific path if available
+    if (targetPath && pathCounts[targetPath] !== undefined) {
+        ws.send(JSON.stringify({ lines: pathCounts[targetPath], path: targetPath }));
+    }
 
     ws.on('close', () => {
-        htmlClients.delete(ws);
+        htmlClients.delete(clientMeta);
     });
 });
 
-// Broadcast line count update to all authenticated HTML clients
-function broadcastLineCount(lines) {
-    const data = JSON.stringify({ lines });
+function broadcastLineCount(filePath, lines) {
+    pathCounts[filePath] = lines;
+    const data = JSON.stringify({ lines, path: filePath });
+
     for (const client of htmlClients) {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(data);
+        if (client.targetPath === filePath && client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(data);
         }
     }
 }
 
-// POST endpoint for PC script to push line updates
-// Endpoint pattern matching: /line?path=...
+// POST endpoint for PC script to push updates
+// Expects: /line?path=C:/your/path.ndjson
 app.post('/line', (req, res) => {
+    const filePath = req.query.path;
     const { payload, lines } = req.body;
 
     if (payload !== PASSWORD) {
         return res.status(401).json({ error: 'Unauthorized payload' });
     }
 
+    if (!filePath) {
+        return res.status(400).json({ error: 'Missing path query parameter' });
+    }
+
     if (typeof lines !== 'number') {
         return res.status(400).json({ error: 'Invalid lines value' });
     }
 
-    broadcastLineCount(lines);
-    return res.status(200).json({ status: 'success', broadcasted: lines });
+    broadcastLineCount(filePath, lines);
+    return res.status(200).json({ status: 'success', path: filePath, broadcasted: lines });
 });
 
 const PORT = process.env.PORT || 3000;

@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Line Count Tracker</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -18,55 +21,103 @@
         }
         .card {
             background-color: #1e1e1e;
-            padding: 2rem 3rem;
+            padding: 2.5rem;
             border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
             text-align: center;
             width: 90%;
-            max-width: 500px;
+            max-width: 520px;
+        }
+        h2 {
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            letter-spacing: -0.5px;
         }
         .input-group {
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
+            gap: 0.6rem;
             margin-bottom: 1.5rem;
             text-align: left;
         }
         label {
             font-size: 0.85rem;
             color: #aaa;
+            font-weight: 500;
         }
         input[type="text"] {
-            padding: 0.6rem;
-            border-radius: 6px;
+            padding: 0.75rem;
+            border-radius: 8px;
             border: 1px solid #333;
             background-color: #2a2a2a;
             color: #fff;
-            font-size: 0.9rem;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus {
+            border-color: #00e676;
         }
         button {
-            padding: 0.6rem;
-            border-radius: 6px;
+            padding: 0.75rem;
+            border-radius: 8px;
             border: none;
             background-color: #00e676;
             color: #121212;
+            font-size: 0.95rem;
             font-weight: bold;
             cursor: pointer;
-            margin-top: 0.5rem;
+            margin-top: 0.4rem;
+            transition: background-color 0.2s;
         }
         button:hover {
             background-color: #00c853;
         }
-        .count {
-            font-size: 3.5rem;
-            font-weight: bold;
-            color: #00e676;
-            margin-top: 1rem;
+        .count-container {
+            margin: 1.5rem 0 0.5rem;
+            padding: 1.5rem;
+            background: #181818;
+            border-radius: 8px;
+            border: 1px solid #282828;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
         }
+
+        /* 0.5s Odometer Styling */
+        .odometer {
+            display: inline-flex;
+            font-size: 4rem;
+            font-weight: 800;
+            color: #00e676;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .odometer-digit {
+            position: relative;
+            height: 1em;
+            overflow: hidden;
+            display: inline-block;
+        }
+        .odometer-ribbon {
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        .odometer-num {
+            height: 1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .status {
-            margin-top: 0.5rem;
+            margin-top: 1rem;
             font-size: 0.85rem;
             color: #888;
+            word-break: break-all;
         }
     </style>
 </head>
@@ -80,7 +131,10 @@
             <button id="connect-btn">Track File</button>
         </div>
 
-        <div id="line-count" class="count">--</div>
+        <div class="count-container">
+            <div id="odometer" class="odometer">--</div>
+        </div>
+
         <div id="status" class="status">Enter file path to connect</div>
     </div>
 
@@ -91,37 +145,100 @@
 
         const pathInput = document.getElementById('path-input');
         const connectBtn = document.getElementById('connect-btn');
-        const countDisplay = document.getElementById('line-count');
+        const odometerDisplay = document.getElementById('odometer');
         const statusDisplay = document.getElementById('status');
 
         pathInput.value = defaultPath;
-
         let socket = null;
 
-        function startConnection() {
-            if (!payload) {
-                payload = prompt("Enter access password:");
-                if (!payload) return;
+        // Odometer rendering function (0.5s smooth scroll)
+        function updateOdometer(newValue) {
+            if (typeof newValue !== 'number') {
+                odometerDisplay.textContent = '--';
+                return;
             }
 
-            const targetPath = pathInput.value.trim();
+            const formattedStr = newValue.toLocaleString();
+            
+            // Build elements structure if character count/pattern changes
+            if (odometerDisplay.dataset.value !== formattedStr) {
+                odometerDisplay.dataset.value = formattedStr;
+                odometerDisplay.innerHTML = '';
+
+                [...formattedStr].forEach(char => {
+                    if (/\d/.test(char)) {
+                        const digitBox = document.createElement('div');
+                        digitBox.className = 'odometer-digit';
+
+                        const ribbon = document.createElement('div');
+                        ribbon.className = 'odometer-ribbon';
+
+                        for (let i = 0; i <= 9; i++) {
+                            const numElem = document.createElement('div');
+                            numElem.className = 'odometer-num';
+                            numElem.textContent = i;
+                            ribbon.appendChild(numElem);
+                        }
+
+                        digitBox.appendChild(ribbon);
+                        odometerDisplay.appendChild(digitBox);
+
+                        const targetDigit = parseInt(char, 10);
+                        requestAnimationFrame(() => {
+                            ribbon.style.transform = `translateY(-${targetDigit * 1}em)`;
+                        });
+                    } else {
+                        const staticChar = document.createElement('span');
+                        staticChar.textContent = char;
+                        odometerDisplay.appendChild(staticChar);
+                    }
+                });
+            } else {
+                // Animate existing ribbons to new digits
+                const digits = [...formattedStr].filter(c => /\d/.test(c));
+                const ribbons = odometerDisplay.querySelectorAll('.odometer-ribbon');
+
+                digits.forEach((digit, idx) => {
+                    if (ribbons[idx]) {
+                        ribbons[idx].style.transform = `translateY(-${parseInt(digit, 10) * 1}em)`;
+                    }
+                });
+            }
+        }
+
+        function startConnection(targetPath) {
+            if (!payload) {
+                payload = prompt("Enter access password:");
+                if (!payload) {
+                    statusDisplay.textContent = 'Password required to connect';
+                    statusDisplay.style.color = '#ff5252';
+                    return;
+                }
+            }
+
             if (!targetPath) {
                 alert("Please enter a valid file path.");
                 return;
             }
 
-            if (socket) {
-                socket.close();
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    action: 'subscribe',
+                    path: targetPath
+                }));
+                updateOdometer('--');
+                statusDisplay.textContent = `Tracking: ${targetPath}`;
+                statusDisplay.style.color = '#00e676';
+                return;
             }
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.host || 'huntie-linecounter-v1.onrender.com';
             
-            // Send both payload and path in the query string
             const wsUrl = `${protocol}//${host}?payload=${encodeURIComponent(payload)}&path=${encodeURIComponent(targetPath)}`;
             
             socket = new WebSocket(wsUrl);
-            statusDisplay.textContent = 'Connecting...';
+            statusDisplay.textContent = 'Connecting to server...';
             statusDisplay.style.color = '#888';
 
             socket.onopen = () => {
@@ -133,7 +250,7 @@
                 try {
                     const data = JSON.parse(event.data);
                     if (data.lines !== undefined) {
-                        countDisplay.textContent = data.lines.toLocaleString();
+                        updateOdometer(data.lines);
                     }
                 } catch (err) {
                     console.error('Failed to parse WebSocket message:', err);
@@ -146,22 +263,25 @@
             };
 
             socket.onclose = (e) => {
+                socket = null;
                 if (e.code === 1008) {
-                    statusDisplay.textContent = 'Unauthorized password';
+                    statusDisplay.textContent = 'Unauthorized: Incorrect password';
                     statusDisplay.style.color = '#ff5252';
-                    payload = null; // Reset password so user can retry
+                    payload = null;
                 } else {
-                    statusDisplay.textContent = 'Disconnected';
+                    statusDisplay.textContent = 'Disconnected from server';
                     statusDisplay.style.color = '#ffaa00';
                 }
             };
         }
 
-        connectBtn.addEventListener('click', startConnection);
+        connectBtn.addEventListener('click', () => {
+            const path = pathInput.value.trim();
+            startConnection(path);
+        });
 
-        // Auto-connect if initial parameters are present
         if (defaultPath) {
-            startConnection();
+            startConnection(defaultPath);
         }
     </script>
 </body>

@@ -9,22 +9,26 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 
+// Set AUTH_PASSWORD in Render Environment Variables
 const PASSWORD = process.env.AUTH_PASSWORD;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Store client connections: Set<{ ws, targetPath }>
+// Set to track clients: Set<{ ws, targetPath }>
 const htmlClients = new Set();
-
 // Cache latest count per path: { [filePath]: lineCount }
 const pathCounts = {};
 
 wss.on('connection', (ws, req) => {
-    const urlParams = new URLSearchParams(req.url.replace(/^.*\?/, ''));
-    const token = urlParams.get('payload');
-    let targetPath = urlParams.get('path');
+    // Clean, standard URL parsing
+    const host = req.headers.host || 'localhost';
+    const parsedUrl = new URL(req.url, `http://${host}`);
+    const token = parsedUrl.searchParams.get('payload');
+    let targetPath = parsedUrl.searchParams.get('path');
 
-    if (token !== PASSWORD) {
+    // Password verification log (useful in Render logs)
+    if (!PASSWORD || token !== PASSWORD) {
+        console.warn(`[WS] Connection rejected: Invalid or missing password payload.`);
         ws.close(1008, 'Unauthorized');
         return;
     }
@@ -37,7 +41,7 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ lines: pathCounts[targetPath], path: targetPath }));
     }
 
-    // Allow HTML client to dynamically switch paths over the open WS connection
+    // Allow HTML client to switch tracked paths over open WS
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
@@ -70,7 +74,7 @@ function broadcastLineCount(filePath, lines) {
     }
 }
 
-// GET endpoint for PC script to fetch all unique paths currently requested by web clients
+// Endpoint for PC to query active requested paths
 app.get('/active-paths', (req, res) => {
     const authHeader = req.headers['authorization'] || req.query.payload;
     if (authHeader !== PASSWORD) {
@@ -84,7 +88,7 @@ app.get('/active-paths', (req, res) => {
     return res.json({ paths: activePaths });
 });
 
-// POST endpoint for PC script to push updates per file path
+// Endpoint for PC to report line counts
 app.post('/line', (req, res) => {
     const filePath = req.query.path;
     const { payload, lines } = req.body;

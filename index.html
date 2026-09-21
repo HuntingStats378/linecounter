@@ -18,69 +18,151 @@
         }
         .card {
             background-color: #1e1e1e;
-            padding: 2rem 4rem;
+            padding: 2rem 3rem;
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             text-align: center;
+            width: 90%;
+            max-width: 500px;
+        }
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+        label {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        input[type="text"] {
+            padding: 0.6rem;
+            border-radius: 6px;
+            border: 1px solid #333;
+            background-color: #2a2a2a;
+            color: #fff;
+            font-size: 0.9rem;
+        }
+        button {
+            padding: 0.6rem;
+            border-radius: 6px;
+            border: none;
+            background-color: #00e676;
+            color: #121212;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+        button:hover {
+            background-color: #00c853;
         }
         .count {
-            font-size: 4rem;
+            font-size: 3.5rem;
             font-weight: bold;
             color: #00e676;
             margin-top: 1rem;
         }
         .status {
             margin-top: 0.5rem;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: #888;
         }
     </style>
 </head>
 <body>
     <div class="card">
-        <h2>Total File Lines</h2>
+        <h2>Live File Line Counter</h2>
+        
+        <div class="input-group">
+            <label for="path-input">Target File Path on PC:</label>
+            <input type="text" id="path-input" placeholder="C:/path/to/your/file.ndjson" />
+            <button id="connect-btn">Track File</button>
+        </div>
+
         <div id="line-count" class="count">--</div>
-        <div id="status" class="status">Connecting...</div>
+        <div id="status" class="status">Enter file path to connect</div>
     </div>
 
     <script>
-        // Retrieve payload/password from prompt or URL query parameter
         const urlParams = new URLSearchParams(window.location.search);
-        const payload = urlParams.get('payload') || prompt("Enter access password:");
+        let payload = urlParams.get('payload');
+        const defaultPath = urlParams.get('path') || 'C:/Users/louca/OneDrive/Documents/database/channels/397mmetadata_2026_09-21_daily.tmp.ndjson';
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `wss://huntie-linecounter-v1.onrender.com?payload=${encodeURIComponent(payload)}`;
-        
-        const socket = new WebSocket(wsUrl);
-
+        const pathInput = document.getElementById('path-input');
+        const connectBtn = document.getElementById('connect-btn');
         const countDisplay = document.getElementById('line-count');
         const statusDisplay = document.getElementById('status');
 
-        socket.onopen = () => {
-            statusDisplay.textContent = 'Connected (Live Updates)';
-            statusDisplay.style.color = '#00e676';
-        };
+        pathInput.value = defaultPath;
 
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.lines !== undefined) {
-                    countDisplay.textContent = data.lines.toLocaleString();
-                }
-            } catch (err) {
-                console.error('Failed to parse WebSocket message:', err);
+        let socket = null;
+
+        function startConnection() {
+            if (!payload) {
+                payload = prompt("Enter access password:");
+                if (!payload) return;
             }
-        };
 
-        socket.onerror = () => {
-            statusDisplay.textContent = 'Connection error / Unauthorized';
-            statusDisplay.style.color = '#ff5252';
-        };
+            const targetPath = pathInput.value.trim();
+            if (!targetPath) {
+                alert("Please enter a valid file path.");
+                return;
+            }
 
-        socket.onclose = () => {
-            statusDisplay.textContent = 'Disconnected';
-            statusDisplay.style.color = '#ff5252';
-        };
+            if (socket) {
+                socket.close();
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host || 'huntie-linecounter-v1.onrender.com';
+            
+            // Send both payload and path in the query string
+            const wsUrl = `${protocol}//${host}?payload=${encodeURIComponent(payload)}&path=${encodeURIComponent(targetPath)}`;
+            
+            socket = new WebSocket(wsUrl);
+            statusDisplay.textContent = 'Connecting...';
+            statusDisplay.style.color = '#888';
+
+            socket.onopen = () => {
+                statusDisplay.textContent = `Tracking: ${targetPath}`;
+                statusDisplay.style.color = '#00e676';
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.lines !== undefined) {
+                        countDisplay.textContent = data.lines.toLocaleString();
+                    }
+                } catch (err) {
+                    console.error('Failed to parse WebSocket message:', err);
+                }
+            };
+
+            socket.onerror = () => {
+                statusDisplay.textContent = 'Connection error / Unauthorized';
+                statusDisplay.style.color = '#ff5252';
+            };
+
+            socket.onclose = (e) => {
+                if (e.code === 1008) {
+                    statusDisplay.textContent = 'Unauthorized password';
+                    statusDisplay.style.color = '#ff5252';
+                    payload = null; // Reset password so user can retry
+                } else {
+                    statusDisplay.textContent = 'Disconnected';
+                    statusDisplay.style.color = '#ffaa00';
+                }
+            };
+        }
+
+        connectBtn.addEventListener('click', startConnection);
+
+        // Auto-connect if initial parameters are present
+        if (defaultPath) {
+            startConnection();
+        }
     </script>
 </body>
 </html>

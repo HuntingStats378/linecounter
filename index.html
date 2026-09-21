@@ -127,7 +127,7 @@
         
         <div class="input-group">
             <label for="path-input">Target File Path on PC:</label>
-            <input type="text" id="path-input" placeholder="C:/path/to/your/file.ndjson" />
+            <input type="text" id="path-input" placeholder="e.g. C:/path/to/your/file.ndjson" />
             <button id="connect-btn">Track File</button>
         </div>
 
@@ -135,23 +135,25 @@
             <div id="odometer" class="odometer">--</div>
         </div>
 
-        <div id="status" class="status">Enter file path to connect</div>
+        <div id="status" class="status">Enter a file path to connect</div>
     </div>
 
     <script>
         const urlParams = new URLSearchParams(window.location.search);
         let payload = urlParams.get('payload');
-        const defaultPath = urlParams.get('path') || 'C:/Users/louca/OneDrive/Documents/database/channels/397mmetadata_2026_09-21_daily.tmp.ndjson';
+        const initialPath = urlParams.get('path') || '';
 
         const pathInput = document.getElementById('path-input');
         const connectBtn = document.getElementById('connect-btn');
         const odometerDisplay = document.getElementById('odometer');
         const statusDisplay = document.getElementById('status');
 
-        pathInput.value = defaultPath;
+        if (initialPath) {
+            pathInput.value = initialPath;
+        }
+
         let socket = null;
 
-        // Odometer rendering function (0.5s smooth scroll)
         function updateOdometer(newValue) {
             if (typeof newValue !== 'number') {
                 odometerDisplay.textContent = '--';
@@ -160,7 +162,6 @@
 
             const formattedStr = newValue.toLocaleString();
             
-            // Build elements structure if character count/pattern changes
             if (odometerDisplay.dataset.value !== formattedStr) {
                 odometerDisplay.dataset.value = formattedStr;
                 odometerDisplay.innerHTML = '';
@@ -194,7 +195,6 @@
                     }
                 });
             } else {
-                // Animate existing ribbons to new digits
                 const digits = [...formattedStr].filter(c => /\d/.test(c));
                 const ribbons = odometerDisplay.querySelectorAll('.odometer-ribbon');
 
@@ -207,6 +207,11 @@
         }
 
         function startConnection(targetPath) {
+            if (!targetPath) {
+                alert("Please enter a valid file path to track.");
+                return;
+            }
+
             if (!payload) {
                 payload = prompt("Enter access password:");
                 if (!payload) {
@@ -216,11 +221,7 @@
                 }
             }
 
-            if (!targetPath) {
-                alert("Please enter a valid file path.");
-                return;
-            }
-
+            // If WebSocket is open, re-subscribe on same connection
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
                     action: 'subscribe',
@@ -238,7 +239,7 @@
             const wsUrl = `${protocol}//${host}?payload=${encodeURIComponent(payload)}&path=${encodeURIComponent(targetPath)}`;
             
             socket = new WebSocket(wsUrl);
-            statusDisplay.textContent = 'Connecting to server...';
+            statusDisplay.textContent = 'Connecting...';
             statusDisplay.style.color = '#888';
 
             socket.onopen = () => {
@@ -267,7 +268,7 @@
                 if (e.code === 1008) {
                     statusDisplay.textContent = 'Unauthorized: Incorrect password';
                     statusDisplay.style.color = '#ff5252';
-                    payload = null;
+                    payload = null; // Prompt for password again on next try
                 } else {
                     statusDisplay.textContent = 'Disconnected from server';
                     statusDisplay.style.color = '#ffaa00';
@@ -280,8 +281,9 @@
             startConnection(path);
         });
 
-        if (defaultPath) {
-            startConnection(defaultPath);
+        // Only auto-connect if a path was explicitly passed in the browser URL
+        if (initialPath) {
+            startConnection(initialPath);
         }
     </script>
 </body>

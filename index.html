@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Line Count Tracker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #121212;
+            color: #ffffff;
+        }
+        .card {
+            background-color: #1e1e1e;
+            padding: 2rem 4rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+        .count {
+            font-size: 4rem;
+            font-weight: bold;
+            color: #00e676;
+            margin-top: 1rem;
+        }
+        .status {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Total File Lines</h2>
+        <div id="line-count" class="count">--</div>
+        <div id="status" class="status">Connecting...</div>
+    </div>
+
+    <script>
+        // Retrieve payload/password from prompt or URL query parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const payload = urlParams.get('payload') || prompt("Enter access password:");
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `wss://huntie-linecounter-v1.onrender.com?payload=${encodeURIComponent(payload)}`;
+        
+        const socket = new WebSocket(wsUrl);
+
+        const countDisplay = document.getElementById('line-count');
+        const statusDisplay = document.getElementById('status');
+
+        socket.onopen = () => {
+            statusDisplay.textContent = 'Connected (Live Updates)';
+            statusDisplay.style.color = '#00e676';
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.lines !== undefined) {
+                    countDisplay.textContent = data.lines.toLocaleString();
+                }
+            } catch (err) {
+                console.error('Failed to parse WebSocket message:', err);
+            }
+        };
+
+        socket.onerror = () => {
+            statusDisplay.textContent = 'Connection error / Unauthorized';
+            statusDisplay.style.color = '#ff5252';
+        };
+
+        socket.onclose = () => {
+            statusDisplay.textContent = 'Disconnected';
+            statusDisplay.style.color = '#ff5252';
+        };
+    </script>
+</body>
+</html>

@@ -13,16 +13,16 @@ const PASSWORD = process.env.AUTH_PASSWORD;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Store client connections tagged with their requested path: Set<{ ws, targetPath }>
+// Store client connections: Set<{ ws, targetPath }>
 const htmlClients = new Set();
 
-// Cache counts per path: { [filePath]: lineCount }
+// Cache latest count per path: { [filePath]: lineCount }
 const pathCounts = {};
 
 wss.on('connection', (ws, req) => {
     const urlParams = new URLSearchParams(req.url.replace(/^.*\?/, ''));
     const token = urlParams.get('payload');
-    const targetPath = urlParams.get('path');
+    let targetPath = urlParams.get('path');
 
     if (token !== PASSWORD) {
         ws.close(1008, 'Unauthorized');
@@ -32,10 +32,27 @@ wss.on('connection', (ws, req) => {
     const clientMeta = { ws, targetPath };
     htmlClients.add(clientMeta);
 
-    // Send latest cached count for this specific path if available
+    // Send latest cached count if available
     if (targetPath && pathCounts[targetPath] !== undefined) {
         ws.send(JSON.stringify({ lines: pathCounts[targetPath], path: targetPath }));
     }
+
+    // Allow HTML client to dynamically switch paths over the open WS connection
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            if (data.action === 'subscribe' && data.path) {
+                clientMeta.targetPath = data.path;
+                targetPath = data.path;
+
+                if (pathCounts[targetPath] !== undefined) {
+                    ws.send(JSON.stringify({ lines: pathCounts[targetPath], path: targetPath }));
+                }
+            }
+        } catch (err) {
+            console.error('Invalid message format from client:', err);
+        }
+    });
 
     ws.on('close', () => {
         htmlClients.delete(clientMeta);
@@ -53,8 +70,21 @@ function broadcastLineCount(filePath, lines) {
     }
 }
 
-// POST endpoint for PC script to push updates
-// Expects: /line?path=C:/your/path.ndjson
+// GET endpoint for PC script to fetch all unique paths currently requested by web clients
+app.get('/active-paths', (req, res) => {
+    const authHeader = req.headers['authorization'] || req.query.payload;
+    if (authHeader !== PASSWORD) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const activePaths = Array.from(
+        new Set([...htmlClients].map(c => c.targetPath).filter(Boolean))
+    );
+
+    return res.json({ paths: activePaths });
+});
+
+// POST endpoint for PC script to push updates per file path
 app.post('/line', (req, res) => {
     const filePath = req.query.path;
     const { payload, lines } = req.body;

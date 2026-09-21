@@ -132,7 +132,7 @@
         </div>
 
         <div class="count-container">
-            <div id="odometer" class="odometer">--</div>
+            <div id="odometer" class="odometer">0</div>
         </div>
 
         <div id="status" class="status">Enter a file path to connect</div>
@@ -153,11 +153,12 @@
         }
 
         let socket = null;
+        let reconnectTimeout = null;
+        let currentPath = '';
 
         function updateOdometer(newValue) {
             if (typeof newValue !== 'number') {
-                odometerDisplay.textContent = '--';
-                return;
+                newValue = 0;
             }
 
             const formattedStr = newValue.toLocaleString();
@@ -212,6 +213,8 @@
                 return;
             }
 
+            currentPath = targetPath;
+
             if (!payload) {
                 payload = prompt("Enter access password:");
                 if (!payload) {
@@ -221,13 +224,16 @@
                 }
             }
 
-            // If WebSocket is open, re-subscribe on same connection
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+            }
+
+            // If WebSocket is active, re-subscribe on same connection
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({
                     action: 'subscribe',
                     path: targetPath
                 }));
-                updateOdometer('--');
                 statusDisplay.textContent = `Tracking: ${targetPath}`;
                 statusDisplay.style.color = '#00e676';
                 return;
@@ -268,20 +274,28 @@
                 if (e.code === 1008) {
                     statusDisplay.textContent = 'Unauthorized: Incorrect password';
                     statusDisplay.style.color = '#ff5252';
-                    payload = null; // Prompt for password again on next try
+                    payload = null; // Clear prompt memory on bad password
                 } else {
-                    statusDisplay.textContent = 'Disconnected from server';
+                    statusDisplay.textContent = 'Disconnected. Reconnecting in 3 seconds...';
                     statusDisplay.style.color = '#ffaa00';
+                    // Auto-reconnect after 3 seconds
+                    reconnectTimeout = setTimeout(() => {
+                        if (currentPath) {
+                            startConnection(currentPath);
+                        }
+                    }, 3000);
                 }
             };
         }
+
+        // Initialize odometer to 0
+        updateOdometer(0);
 
         connectBtn.addEventListener('click', () => {
             const path = pathInput.value.trim();
             startConnection(path);
         });
 
-        // Only auto-connect if a path was explicitly passed in the browser URL
         if (initialPath) {
             startConnection(initialPath);
         }
